@@ -7,11 +7,24 @@ html.auth-locked main{display:none!important}html.auth-locked body{overflow:hidd
 </style></head><body><section id="authScreen" class="auth-screen" aria-label="Вход в отчёт"><div class="auth-card"><div class="auth-logo-wrap"><img class="auth-logo" src="https://raw.githubusercontent.com/2491845-ai/masd-re-price-increase/b0eb72b3f168b58a7e9ca8bb12143b764846cda3/site/team-logo.webp" alt="Логотип команды MASD"></div><h1>Отчёт команды MASD RE</h1><form id="authForm"><label for="authPassword">Введите пароль</label><input id="authPassword" type="password" required autocomplete="current-password" autofocus><button type="submit">Открыть отчёт</button><p id="authError" class="auth-error" role="alert"></p></form><p class="auth-loading" role="status">Загружаем отчёт…</p><noscript>Для входа включите JavaScript в браузере.</noscript></div></section><script>
 let reportLoading=false;
 const githubAssets='https://raw.githubusercontent.com/2491845-ai/masd-re-price-increase/b0eb72b3f168b58a7e9ca8bb12143b764846cda3/site/';
+const assetHashes={"report-data.gz": "4cc5db841d262827a290076d53d066b6fdd87a4b59fb3b1f34597283568a5594", "report-app.js": "622386fe83b51fbfba8279a7130751c10a0dbfd9086e4b0f65684362cf006e43"};
+async function verifyAsset(bytes,name){
+ const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
+ if(hash!==assetHashes[name])throw Error('Invalid report asset');
+ return bytes;
+}
 async function fetchReportAsset(name){
+ const cacheKey='masd-re-report:'+assetHashes[name];
+ try{const cached=localStorage.getItem(cacheKey);if(cached)return await verifyAsset(Uint8Array.from(atob(cached),c=>c.charCodeAt(0)).buffer,name)}catch(e){}
  let lastError;
- for(const url of [githubAssets+name,new URL(name,location.href).href]){
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
-  try{const response=await fetch(url,{signal:controller.signal});if(!response.ok)throw Error('HTTP '+response.status);return await response.arrayBuffer()}
+ for(const url of [githubAssets+name,githubAssets+name,new URL(name,location.href).href]){
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
+  try{
+   const response=await fetch(url,{signal:controller.signal});if(!response.ok)throw Error('HTTP '+response.status);
+   const bytes=await verifyAsset(await response.arrayBuffer(),name);
+   try{const view=new Uint8Array(bytes);let binary='';for(let i=0;i<view.length;i+=16384)binary+=String.fromCharCode(...view.subarray(i,i+16384));localStorage.setItem(cacheKey,btoa(binary))}catch(e){}
+   return bytes;
+  }
   catch(e){lastError=e}finally{clearTimeout(timer)}
  }
  throw lastError;
@@ -24,6 +37,7 @@ document.getElementById('authForm').addEventListener('submit',async event=>{
  const hash=Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
  if(hash!=='fd7499895be0797e821b43e0b95b5632643357ea88151e8e82d8a4ae224f75ef'){error.textContent='Неверный пароль. Попробуйте ещё раз.';input.select();return;}
  reportLoading=true;error.textContent='';input.value='';screen.classList.add('auth-busy');
+ if(document.readyState==='loading')await new Promise(resolve=>document.addEventListener('DOMContentLoaded',resolve,{once:true}));
  const bytes=await fetchReportAsset('report-data.gz');
  const text=await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
  JSON.parse(text);document.getElementById('data').textContent=text;
